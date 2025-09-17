@@ -12,10 +12,11 @@ sudo apt install \
     libargparse-dev
 ```
 
-Build.
+Build & install.
 
 ```bash
 make
+sudo make install
 ```
 
 ## Basic Example
