@@ -1,10 +1,12 @@
 #include <iostream>
-#include <opencv2/opencv.hpp>
 #include <vector>
 #include <cmath>
 #include <iomanip>
 #include <openssl/sha.h>
 #include <numeric>
+#include <filesystem>
+#include <opencv2/opencv.hpp>
+#include <argparse/argparse.hpp>
 
 using namespace std;
 using namespace cv;
@@ -94,11 +96,10 @@ Mat toImage(vector<Row> array, int dtype) {
     return out;
 }
 
-template <typename T>
-
 /**
  * Rotate a row of pixels or key integers.
  */
+template <typename T>
 T rotate(T row, int n) {
     // Rotate a single vector by `n` indices.
     if (n < 0) n = row.size() - abs(n);
@@ -111,11 +112,10 @@ T rotate(T row, int n) {
     return temp;
 }
 
-template <typename T>
-
 /**
  * Rotate a pixel matrix clockwise.
  */
+template <typename T>
 vector<T> rotate_cw(vector<T> array) {
     // Rotate a 2d vector clockwise.
     T row = T(array.size(), 0);
@@ -129,11 +129,10 @@ vector<T> rotate_cw(vector<T> array) {
     return out;
 }
 
-template <typename T>
-
 /**
  * Rotate a pixel matrix counter-clockwise.
  */
+template <typename T>
 vector<T> rotate_ccw(vector<T> array) {
     // Rotate a 2d vector counter-clockwise.
     T row = T(array.size(), 0);
@@ -148,17 +147,15 @@ vector<T> rotate_ccw(vector<T> array) {
 }
 
 template <typename T>
-
 vector<T> rotate_2d(vector<T> array, bool cw) {
     if (cw) return rotate_cw<T>(array);
     return rotate_ccw<T>(array);
 }
 
-template <typename T>
-
 /**
  * Apply a slant to a pixel matrix.
  */
+template <typename T>
 vector<T> slant(vector<T> array, bool do_scramble) {
     float diff = (float)array[0].size() / (float)array.size();
     if (!do_scramble) {
@@ -173,11 +170,10 @@ vector<T> slant(vector<T> array, bool do_scramble) {
     return array;
 }
 
-template <typename T>
-
 /**
  * Scramble a pixel matrix from top to bottom with a scramble key.
  */
+template <typename T>
 vector<T> scramble(vector<T> array, Key key, bool do_scramble) {
     T row = T(array[0].size(), 0);
     vector<T> out = vector<T>(array.size(), row);
@@ -197,11 +193,10 @@ vector<T> scramble(vector<T> array, Key key, bool do_scramble) {
     return out;
 }
 
-template <typename T>
-
 /**
  * Full scramble process.
  */
+template <typename T>
 vector<T> doScramble(vector<T> array, Key key, bool forward) {
     array = scramble<T>(array, key, forward);
     array = slant<T>(array, forward);
@@ -247,117 +242,73 @@ Key generateKey(const string &str) {
     return out;
 }
 
-bool endsWith(string check, string criteria) {
-    if (check.size() >= criteria.size()) {
-        string match = check.substr(check.size() - criteria.size(), check.size());
-        return match == criteria;
-    }
-    return false;
-}
-
-string getOutputFile(string filename, bool doScramble) {
-    string scrambledSuffix = ".scrambled.png";
-    string unscrambledSuffix = ".unscrambled.png";
-
-    string prefix = filename;
-    int idx = filename.find_last_of(".");
-    if (idx > 0) {
-        prefix = filename.substr(0, idx);
-    }
-
-    if (doScramble) {
-        if (endsWith(filename, unscrambledSuffix)) {
-            int end = filename.size() - unscrambledSuffix.size();
-            prefix = filename.substr(0, end);
-        }
-        return prefix + scrambledSuffix;
-
+/**
+ * Get an environment variable, or return an empty string.
+ */
+string getEnv(const string& varName) {
+    char* value = getenv(varName.c_str());
+    if (value != nullptr) {
+        return string(value);
     } else {
-        if (endsWith(filename, scrambledSuffix)) {
-            int end = filename.size() - scrambledSuffix.size();
-            prefix = filename.substr(0, end);
-        }
-        return prefix + unscrambledSuffix;
+        return "";
     }
 }
 
 int main(int argc, char *argv[]) {
-    bool scramble = true;
-    string filename;
-    string password;
+    argparse::ArgumentParser program("scrambler", "1.0.0");
 
-    if (argc < 2) {
-        cerr << "Not enough arguments" << endl;
-        exit(1);
+    string pw_env = getEnv("SCRAMBLE_PASSWORD");
+
+    program.add_argument("filename")
+        .help("path to an image file");
+
+    program.add_argument("-p", "--password")
+        .help("the (optional) password to use to scramble the image")
+        .default_value(pw_env);
+
+    program.add_argument("-u", "--unscramble")
+        .help("If specified, unscramble the target image")
+        .default_value(false)
+        .implicit_value(true);
+
+    program.add_argument("-o", "--output")
+        .help("path to save the resulting file to")
+        .default_value("");
+
+    try {
+        program.parse_args(argc, argv);
+    } catch (const exception& err) {
+        cerr << err.what() << endl;
+        cerr << program;
+        return 1;
     }
 
-    for (int i=1; i<argc; i++) {
-        string arg = argv[i];
-        if (arg == "--help") {
-            cout << "Usage scrambler METHOD FILENAME [PASSWORD]" << endl;
-            cout << "   METHOD:" << endl;
-            cout << "     scramble: will scramble the image" << endl;
-            cout << "     unscramble: will unscramble the image" << endl;
-            cout << "   FILENAME: path to an image file to process" << endl;
-            cout << "   PASSWORD: the password used to process the image, will also use the SCRAMBLE_PASSWORD environment variable if set" << endl;
-            exit(0);
-        }
+    auto filename = program.get<string>("filename");
+    auto password = program.get<string>("password");
+    auto output = program.get<string>("output");
+    auto unscramble = program.get<bool>("unscramble");
 
-        switch (i) {
-            case 1:
-                if (arg != "scramble" && arg != "unscramble") {
-                    cerr << "Invalid argument for METHOD" << endl;
-                    exit(1);
-                }
-                scramble = arg == "scramble";
-                break;
-
-            case 2:
-                filename = arg;
-                break;
-
-            case 3:
-                password = arg;
-                break;
-
-            default:
-                cerr << "Invalid argument: " + arg << endl;
-                exit(1);
-        }
-
-    }
-
-    if (filename.empty()) {
-        cerr << "You must specify a filename" << endl;
-        exit(1);
-    }
-
-    if (password.empty()) {
-        char *pw_env = getenv("SCRAMBLE_PASSWORD");
-
-        if (pw_env == NULL) {
-            cerr << "You must specify a password, or set the SCRAMBLE_PASSWORD environment variable" << endl;
-            exit(1);
-        }
-
-        password = pw_env;
+    if (output.empty()) {
+        // If no output file was specified, replace the target image.
+        filesystem::path outFile = filename;
+        outFile.replace_extension(".png");
+        output = outFile.string();
     }
 
     Mat image = imread(filename, IMREAD_COLOR);
     if (image.empty()) {
-        cerr << "Could not read image " << filename << endl;
+        cerr << "Failed to read image: " << filename << endl;
         exit(1);
     }
 
     Key key = generateKey(password);
     vector<Row> pixels = toArray(image);
 
-    pixels = doScramble<Row>(pixels, key, scramble);
+    pixels = doScramble<Row>(pixels, key, !unscramble);
 
     Mat imageOut = toImage(pixels, image.type());
 
-    string outfile = getOutputFile(filename, scramble);
-    imwrite(outfile, imageOut);
+    imwrite(output, imageOut);
 
-    cout << "Image written to " << outfile << endl;
+    cout << "Saved: " << output << endl;
 }
